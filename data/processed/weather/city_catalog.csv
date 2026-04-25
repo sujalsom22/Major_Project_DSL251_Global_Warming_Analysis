@@ -1,0 +1,16 @@
+city,country,continent,latitude,longitude
+Delhi,India,Asia,28.6139,77.209
+Tokyo,Japan,Asia,35.6762,139.6503
+Singapore,Singapore,Asia,1.3521,103.8198
+London,United Kingdom,Europe,51.5072,-0.1276
+Paris,France,Europe,48.8566,2.3522
+Berlin,Germany,Europe,52.52,13.405
+New York,USA,North America,40.7128,-74.006
+Los Angeles,USA,North America,34.0522,-118.2437
+Toronto,Canada,North America,43.6532,-79.3832
+Sao Paulo,Brazil,South America,-23.5505,-46.6333
+Buenos Aires,Argentina,South America,-34.6037,-58.3816
+Cairo,Egypt,Africa,30.0444,31.2357
+Nairobi,Kenya,Africa,-1.2921,36.8219
+Cape Town,South Africa,Africa,-33.9249,18.4241
+Sydney,Australia,Australia,-33.8688,151.2093

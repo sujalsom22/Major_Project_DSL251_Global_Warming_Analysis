@@ -1,0 +1,23 @@
+column_name,description
+date,Observation date
+year,Calendar year extracted from date
+month,Calendar month number
+month_name,Calendar month name
+day,Day of month
+season,Meteorological season derived from month
+city,City name
+country,Country name
+continent,Continent label
+latitude,City latitude
+longitude,City longitude
+temperature_2m_mean,Daily mean temperature in Celsius
+temperature_2m_max,Daily maximum temperature in Celsius
+temperature_2m_min,Daily minimum temperature in Celsius
+city_mean_temperature,Mean temperature across the selected date range for that city
+temperature_anomaly,Daily mean minus city mean temperature
+rolling_7d_avg,7-day rolling average of mean temperature
+rolling_30d_avg,30-day rolling average of mean temperature
+data_source,Source API name
+continent_yearly_mean,Average mean temperature for the continent in that year
+city_yearly_mean,Average mean temperature for the city in that year
+global_daily_mean,Average mean temperature across all collected cities for that date
