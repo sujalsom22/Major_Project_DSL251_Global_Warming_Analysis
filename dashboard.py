@@ -6,6 +6,8 @@ import warnings
 
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
@@ -175,43 +177,47 @@ def compute_key_findings(master: pd.DataFrame, annual: pd.DataFrame, global_annu
 
 def make_risk_map(city_slopes: pd.DataFrame) -> go.Figure:
     risk_df = city_slopes.copy()
-    risk_df["risk_level"] = pd.qcut(
-        risk_df["trend_per_decade"],
-        q=3,
-        labels=["Low Risk", "Moderate Risk", "High Risk"],
-    )
+    risk_df["slope_per_year"] = risk_df["trend_per_decade"] / 10
+    risk_df["slope_per_decade"] = risk_df["trend_per_decade"]
+    risk_df["risk_level"] = np.where(risk_df["slope_per_year"] > 0, "High Risk", "Low Risk")
 
     fig = px.scatter_geo(
         risk_df,
         lat="latitude",
         lon="longitude",
-        color="risk_level",
-        size=risk_df["trend_per_decade"].abs() + 0.1,
         hover_name="city",
         hover_data={
             "country": True,
             "continent": True,
-            "trend_per_decade": ":.3f",
+            "slope_per_year": ":.4f",
+            "slope_per_decade": ":.3f",
             "latitude": False,
             "longitude": False,
         },
+        color="risk_level",
         color_discrete_map={
-            "High Risk": "#d73027",
-            "Moderate Risk": "#fdae61",
-            "Low Risk": "#4575b4",
+            "High Risk": "red",
+            "Low Risk": "blue",
         },
+        size=abs(risk_df["slope_per_decade"]) + 0.05,
         projection="natural earth",
-        title="Warming Risk Across Selected Global Cities",
+        title="Global Warming Risk Map Based on City Temperature Trends",
     )
+
     fig.update_geos(
         showland=True,
-        landcolor="#eef3f6",
+        landcolor="rgb(235, 235, 235)",
         showocean=True,
-        oceancolor="#dbeaf4",
+        oceancolor="rgb(220, 235, 250)",
         showcountries=True,
         countrycolor="white",
     )
-    fig.update_layout(height=520, margin=dict(l=0, r=0, t=55, b=0))
+
+    fig.update_layout(
+        height=600,
+        legend_title_text="Risk Level",
+        margin=dict(l=10, r=10, t=60, b=10),
+    )
     return fig
 
 
@@ -445,102 +451,316 @@ elif page == "EDA":
     tabs = st.tabs(["Global Trend", "Annual Anomaly", "Heatmap", "City Trends", "Violin", "Season Box", "Slope Ranking", "Scatter", "Correlation", "Decomposition", "Geo Risk"])
 
     with tabs[0]:
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(x=monthly_global_df["date"], y=monthly_global_df["temp_mean"], line=dict(color="#8cc7ea", width=1), name="Monthly mean", opacity=0.55))
-        fig.add_trace(go.Scatter(x=monthly_global_df["date"], y=monthly_global_df["rolling_12m"], line=dict(color="#0b3c5d", width=2.5), name="12-month rolling mean"))
-        fig.update_layout(title="Global Monthly Temperature Trend", height=430, plot_bgcolor="white")
-        st.plotly_chart(fig, use_container_width=True)
-        st.info(f"The 12-month rolling line makes the warming signal easier to see than raw monthly values. Across the cleaned dataset, global annual temperature rises by about {findings['global_slope_decade']:.2f} C per decade, with a modest fit of R2={findings['global_r2']:.2f}. This tells us the long-term direction is upward, even though year-to-year variation is still visible.")
+        monthly_global = master.groupby(master["date"].dt.to_period("M"))["temp_mean"].mean().reset_index()
+        monthly_global["date"] = monthly_global["date"].dt.to_timestamp()
+        monthly_global["rolling_12m"] = monthly_global["temp_mean"].rolling(12, center=True).mean()
+
+        x = np.arange(len(monthly_global))
+        valid = monthly_global["rolling_12m"].notnull()
+        slope, intercept = np.polyfit(x[valid], monthly_global.loc[valid, "rolling_12m"], 1)
+
+        fig, ax = plt.subplots(figsize=(13, 5))
+        ax.plot(monthly_global["date"], monthly_global["temp_mean"], color="#65c7fc", alpha=0.55, label="Monthly mean")
+        ax.plot(monthly_global["date"], monthly_global["rolling_12m"], color="#08519c", linewidth=2.3, label="12-month rolling mean")
+        ax.plot(monthly_global["date"][valid], slope * x[valid] + intercept, color="#d73027", linestyle="--", label=f"Trend: {slope * 12:.2f} C/year")
+        ax.set_title("Global Monthly Temperature Trend")
+        ax.set_ylabel("Temperature (C)")
+        ax.set_xlabel("")
+        ax.legend(frameon=False)
+        fig.tight_layout()
+        st.pyplot(fig, use_container_width=True)
+        plt.close(fig)
+
+        st.markdown("""### Insights
+1. The 12-month rolling average smooths short-term seasonal variation and makes the long-term pattern easier to observe.
+2. The fitted trend line shows a positive trend of about 0.01 C per year based on the collected city sample.
+3. Monthly temperatures fluctuate strongly due to seasonality, so rolling averages are more useful than raw monthly values for trend interpretation.
+""")
 
     with tabs[1]:
-        fig = px.bar(global_annual, x="year", y="global_anomaly_mean", color="global_anomaly_mean", color_continuous_scale="RdBu_r", color_continuous_midpoint=0, title="Global Annual Temperature Anomaly")
-        fig.update_layout(height=430, plot_bgcolor="white")
-        st.plotly_chart(fig, use_container_width=True)
-        max_row = global_annual.loc[global_annual["global_anomaly_mean"].idxmax()]
-        st.info(f"Positive anomaly bars become stronger in the later part of the series, which supports the warming pattern. The highest annual anomaly in this cleaned run appears in {int(max_row['year'])} at {max_row['global_anomaly_mean']:.2f} C. Because the anomaly is measured against a city baseline, it is more comparable across locations than raw temperature alone.")
+        colors = np.where(global_annual["global_anomaly_mean"] >= 0, "#d73027", "#4575b4")
+
+        fig, ax = plt.subplots(figsize=(11, 5))
+        bars = ax.bar(global_annual["year"], global_annual["global_anomaly_mean"], color=colors)
+        ax.axhline(0, color="black", linewidth=0.8)
+        ax.set_title("Global Annual Temperature Anomaly")
+        ax.set_ylabel("Anomaly (C)")
+        ax.set_xlabel("Year")
+
+        for bar, value in zip(bars, global_annual["global_anomaly_mean"]):
+            ax.text(bar.get_x() + bar.get_width() / 2, value, f"{value:.2f}", ha="center", va="bottom" if value >= 0 else "top", fontsize=8)
+
+        fig.tight_layout()
+        st.pyplot(fig, use_container_width=True)
+        plt.close(fig)
+
+        st.markdown("""### Insights
+1. The annual anomaly increased from about 0.00 C in 2015 to about 0.46 C in 2024.
+2. Later years show more positive anomaly values, which suggests warming relative to the baseline period(2015-19) used in this project.
+3. Since anomalies are calculated relative to city-specific baseline temperatures, they are more reliable.
+4. Year 2021-22 having negative anomaly may be due to Covid time that industry work have declined their rate which decreased pollution and greenhouse gas emmision. That is why pollution is positively correlated with global temperature.  
+""")
 
     with tabs[2]:
-        monthly_anomaly = master.groupby(["year", "month"], as_index=False)["temp_anomaly"].mean()
+        monthly_anomaly = master.groupby(["year", "month"])["temp_anomaly"].mean().reset_index()
         heatmap_data = monthly_anomaly.pivot(index="month", columns="year", values="temp_anomaly")
         heatmap_data.index = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-        heat_range = float(heatmap_data.abs().max().max())
-        fig = px.imshow(heatmap_data, aspect="auto", color_continuous_scale="RdBu_r", zmin=-heat_range, zmax=heat_range, title="Monthly Temperature Anomaly Heatmap")
-        fig.update_layout(height=430)
-        st.plotly_chart(fig, use_container_width=True)
-        hottest = monthly_anomaly.sort_values("temp_anomaly", ascending=False).iloc[0]
-        st.info(f"The heatmap highlights when warming is concentrated within the year, not just across years. The strongest month-year anomaly in the current data is {MONTH_NAMES[int(hottest['month'])]} {int(hottest['year'])}, at {hottest['temp_anomaly']:.2f} C. Several mid-year months stand out, showing that the warming signal is also seasonal.")
+
+        fig, ax = plt.subplots(figsize=(12, 6))
+        sns.heatmap(
+            heatmap_data,
+            cmap="RdBu_r",
+            center=0,
+            annot=True,
+            fmt=".1f",
+            linewidths=0.4,
+            cbar_kws={"label": "Temperature anomaly (C)"},
+            ax=ax,
+        )
+        ax.set_title("Monthly Temperature Anomaly Heatmap")
+        ax.set_xlabel("Year")
+        ax.set_ylabel("Month")
+        fig.tight_layout()
+        st.pyplot(fig, use_container_width=True)
+        plt.close(fig)
+
+        st.markdown("""### Insights
+1. The heatmap highlights which months and years were warmer or cooler compared with the baseline.
+2. Strong positive anomalies are visible in several mid-year months, especially July and August.
+3. This chart is useful for detecting seasonal warming patterns, not just yearly averages.
+""")
 
     with tabs[3]:
-        fig = go.Figure()
-        for city, data in annual_city.groupby("city"):
-            data = data.sort_values("year")
-            color = PALETTE.get(data["continent"].iloc[0], "gray")
-            fig.add_trace(go.Scatter(x=data["year"], y=data["temp_annual_mean"], mode="lines", name=city, line=dict(color=color, width=1.8), opacity=0.65))
-        fig.update_layout(title="Annual Mean Temperature by City", height=470, plot_bgcolor="white")
-        st.plotly_chart(fig, use_container_width=True)
-        top_three = findings["city_slopes"].head(3)
-        st.info(f"City trends are not uniform, which is exactly why a city-wise view matters. The fastest warming cities in this cleaned dataset are {top_three.iloc[0]['city']}, {top_three.iloc[1]['city']}, and {top_three.iloc[2]['city']}. That spread shows local climate behavior can differ a lot even when the global direction is upward.")
+        fig, ax = plt.subplots(figsize=(13, 6))
+
+        for city, city_data in annual_city.groupby("city"):
+            city_data = city_data.sort_values("year")
+            continent = city_data["continent"].iloc[0]
+            ax.plot(
+                city_data["year"],
+                city_data["temp_annual_mean"],
+                color=PALETTE.get(continent, "gray"),
+                alpha=0.7,
+                linewidth=1.5,
+            )
+            ax.text(
+                city_data["year"].iloc[-1] + 0.05,
+                city_data["temp_annual_mean"].iloc[-1],
+                city,
+                fontsize=7,
+                color=PALETTE.get(continent, "gray"),
+            )
+
+        ax.set_title("Annual Mean Temperature by City")
+        ax.set_ylabel("Temperature (C)")
+        ax.set_xlabel("Year")
+        fig.tight_layout()
+        st.pyplot(fig, use_container_width=True)
+        plt.close(fig)
+
+        st.markdown("""### Insights
+1. Cities show different warming behavior, which indicates that temperature change is not uniform across locations.
+2. Tokyo, Cairo, New York, and Toronto show some of the strongest positive annual temperature slopes in this dataset.
+3. Some cities show weaker or negative slopes, which may be due to local climate variability, coastal effects, or the limited 10-year period.
+""")
 
     with tabs[4]:
-        fig = px.violin(master, x="continent", y="temp_anomaly", color="continent", color_discrete_map=PALETTE, box=True, points=False, title="Temperature Anomaly Distribution by Continent")
-        fig.update_layout(height=430, showlegend=False, plot_bgcolor="white")
-        st.plotly_chart(fig, use_container_width=True)
-        continent_anom = master.groupby("continent")["temp_anomaly"].mean().sort_values(ascending=False)
-        st.info(f"The violin plot shows both spread and density, so it tells us more than a simple average. On average, {continent_anom.index[0]} has the highest anomaly in the cleaned dataset, while {continent_anom.index[-1]} has the lowest. Wider violin shapes point to stronger seasonal or day-to-day variation in anomaly values.")
+        fig, ax = plt.subplots(figsize=(12, 6))
+        continent_order = master.groupby("continent")["temp_anomaly"].median().sort_values(ascending=False).index
+
+        sns.violinplot(
+            data=master,
+            x="continent",
+            y="temp_anomaly",
+            order=continent_order,
+            palette=PALETTE,
+            inner="quartile",
+            cut=0,
+            ax=ax,
+        )
+
+        ax.axhline(0, color="black", linestyle="--", linewidth=0.8)
+        ax.set_title("Temperature Anomaly Distribution by Continent")
+        ax.set_ylabel("Temperature anomaly (C)")
+        ax.set_xlabel("")
+        ax.tick_params(axis="x", rotation=20)
+        fig.tight_layout()
+        st.pyplot(fig, use_container_width=True)
+        plt.close(fig)
+
+        st.markdown("""### Insights
+1. The violin plot shows both the spread and density of temperature anomalies across continents.
+2. Europe and North America have higher average anomalies in this dataset compared with Australia and South America.
+3. Wider distributions suggest stronger day-to-day or seasonal variability in anomaly values.
+4. Asia and Africa have more density towards center which means average anomaly across the continent is almost 0. Means in other words they are stable since last decade.
+""")
 
     with tabs[5]:
-        fig = px.box(master, x="season", y="temp_anomaly", color="hemisphere", category_orders={"season": ["Winter", "Spring", "Summer", "Autumn"]}, title="Season-wise Temperature Anomaly by Hemisphere")
-        fig.update_layout(height=430, plot_bgcolor="white")
-        st.plotly_chart(fig, use_container_width=True)
-        season_stats = master.groupby(["hemisphere", "season"])["temp_anomaly"].mean().reset_index()
-        north_top = season_stats[season_stats["hemisphere"] == "Northern"].sort_values("temp_anomaly", ascending=False).iloc[0]
-        south_top = season_stats[season_stats["hemisphere"] == "Southern"].sort_values("temp_anomaly", ascending=False).iloc[0]
-        st.info(f"Seasonality behaves differently across hemispheres, which is exactly what we expect in climate data. In the Northern Hemisphere, the strongest positive anomaly appears in {north_top['season']}; in the Southern Hemisphere, it appears in {south_top['season']}. This is why season and hemisphere both matter when we interpret warming patterns.")
+        fig, ax = plt.subplots(figsize=(10, 6))
+        season_order = ["Winter", "Spring", "Summer", "Autumn"]
+
+        sns.boxplot(
+            data=master,
+            x="season",
+            y="temp_anomaly",
+            order=season_order,
+            hue="hemisphere",
+            palette=["#0072B2", "#D55E00"],
+            ax=ax,
+        )
+
+        ax.axhline(0, color="black", linestyle="--", linewidth=0.8)
+        ax.set_title("Season-wise Temperature Anomaly by Hemisphere")
+        ax.set_ylabel("Temperature anomaly (C)")
+        ax.set_xlabel("")
+        ax.legend(title="Hemisphere")
+        fig.tight_layout()
+        st.pyplot(fig, use_container_width=True)
+        plt.close(fig)
+
+        st.markdown("""### Insights
+1. Seasonal anomaly patterns differ clearly between the Northern and Southern Hemispheres.
+2. Northern Hemisphere summer months show high positive anomalies, while winter months show lower values.
+3. The opposite seasonal behavior in the Southern Hemisphere confirms that hemisphere should be considered during seasonal analysis. This is due to the fact that southern hemisphere has summers in November to January and I have extracted season column based on northern hemisphere.
+""")
 
     with tabs[6]:
-        slope_df = findings["city_slopes"].sort_values("trend_per_decade", ascending=True)
-        fig = px.bar(slope_df, x="trend_per_decade", y="city", color="continent", orientation="h", color_discrete_map=PALETTE, title="City-wise Warming Trend Ranking")
-        fig.add_vline(x=0, line_width=1, line_dash="dash")
-        fig.update_layout(height=470, plot_bgcolor="white")
-        st.plotly_chart(fig, use_container_width=True)
-        st.info(f"This chart ranks the local warming slopes directly in C per decade, which makes interpretation straightforward. {findings['top_city']} has the highest warming slope at about {findings['top_city_trend']:.2f} C per decade. Some cities still show weak or negative slopes, which is a reminder that a 10-year climate sample can contain local variability.")
+        slopes = []
+
+        for city, city_data in annual_city.groupby("city"):
+            city_data = city_data.sort_values("year")
+            slope, intercept = np.polyfit(city_data["year"], city_data["temp_annual_mean"], 1)
+            slopes.append({
+                "city": city,
+                "continent": city_data["continent"].iloc[0],
+                "slope_per_year": slope,
+            })
+
+        slope_df = pd.DataFrame(slopes).sort_values("slope_per_year", ascending=True)
+
+        fig, ax = plt.subplots(figsize=(10, 6))
+        sns.barplot(
+            data=slope_df,
+            x="slope_per_year",
+            y="city",
+            hue="continent",
+            dodge=False,
+            palette=PALETTE,
+            ax=ax,
+        )
+
+        ax.axvline(0, color="black", linewidth=0.8)
+        ax.set_title("City-wise Warming/Cooling Slope")
+        ax.set_xlabel("Temperature change per year (C/year)")
+        ax.set_ylabel("")
+        ax.legend(title="Continent", bbox_to_anchor=(1.02, 1), loc="upper left")
+        fig.tight_layout()
+        st.pyplot(fig, use_container_width=True)
+        plt.close(fig)
+
+        st.markdown("""### Insights
+1. The slope chart ranks cities by their annual temperature change, making local warming patterns easier to compare.
+2. Tokyo and Cairo show the strongest positive slopes among the selected cities.
+3. Negative slopes in some cities should not be interpreted as global cooling, because local variation and short study duration can affect city-level trends. Main example of this can be seen in Delhi, may be the max temperature of Delhi is increasing year by year but Delhi have severe winters making its yearly mean stable.
+""")
 
     with tabs[7]:
         sample_df = master.sample(min(30000, len(master)), random_state=42)
-        fig = px.scatter(sample_df, x="temp_mean", y="temp_range_day_wise", color="continent", color_discrete_map=PALETTE, opacity=0.35, title="Daily Temperature Range vs Mean Temperature")
-        fig.update_layout(height=430, plot_bgcolor="white")
-        st.plotly_chart(fig, use_container_width=True)
-        corr_val = master[["temp_mean", "temp_range_day_wise"]].corr().iloc[0, 1]
-        st.info(f"The scatter plot shows how temperature range behaves relative to average temperature. The correlation here is only {corr_val:.2f}, so daily temperature range adds information that mean temperature alone does not capture. The continent clusters also suggest geography plays a role in both central tendency and variability.")
+
+        fig, ax = plt.subplots(figsize=(11, 6))
+        sns.scatterplot(
+            data=sample_df,
+            x="temp_mean",
+            y="temp_range_day_wise",
+            hue="continent",
+            palette=PALETTE,
+            alpha=0.35,
+            s=18,
+            ax=ax,
+        )
+
+        ax.set_title("Daily Temperature Range vs Mean Temperature")
+        ax.set_xlabel("Mean temperature (C)")
+        ax.set_ylabel("Daily temperature range (C)")
+        ax.legend(title="Continent", bbox_to_anchor=(1.02, 1), loc="upper left")
+        fig.tight_layout()
+        st.pyplot(fig, use_container_width=True)
+        plt.close(fig)
+
+        st.markdown("""### Insights
+1. The scatter plot shows how daily temperature range changes with average temperature.
+2. Cities and continents form different clusters, suggesting that geography influences both average temperature and daily variation.
+3. Temperature range is only weakly correlated with mean temperature, so it provides additional information beyond average temperature alone.
+4. From this we can see that Asia has the highest mean temperature whereas North America has lowest mean temperature.
+""")
 
     with tabs[8]:
-        corr_cols = ["temp_mean", "temp_max", "temp_min", "temp_range_day_wise", "temp_anomaly", "temp_7day_avg", "temp_30day_avg", "city_yearly_mean", "continent_yearly_mean", "global_daily_mean"]
+        corr_cols = [
+            "temp_mean",
+            "temp_max",
+            "temp_min",
+            "temp_range_day_wise",
+            "temp_anomaly",
+            "temp_7day_avg",
+            "temp_30day_avg",
+            "city_yearly_mean",
+            "continent_yearly_mean",
+            "global_daily_mean",
+        ]
+
         corr_data = master[corr_cols].corr()
-        fig = px.imshow(corr_data, text_auto=".2f", color_continuous_scale="RdBu_r", zmin=-1, zmax=1, title="Correlation Heatmap of Temperature Features")
-        fig.update_layout(height=500)
-        st.plotly_chart(fig, use_container_width=True)
-        strongest = corr_data["temp_mean"].drop("temp_mean").abs().sort_values(ascending=False).index[0]
-        st.info(f"Mean, max, and min temperatures move closely together, which is exactly what we would expect. The strongest companion variable for temp_mean here is {strongest}. Temperature range is much weaker, so it behaves like a useful complementary feature rather than a duplicate one.")
+
+        fig, ax = plt.subplots(figsize=(10, 7))
+        sns.heatmap(corr_data, annot=True, fmt=".2f", cmap="coolwarm", center=0, linewidths=0.4, ax=ax)
+        ax.set_title("Correlation Heatmap of Temperature Features")
+        fig.tight_layout()
+        st.pyplot(fig, use_container_width=True)
+        plt.close(fig)
+
+        st.markdown("""### Insights
+1. Mean, maximum, and minimum temperatures are strongly correlated, which is expected because they measure related daily temperature behavior.
+2. Rolling averages are highly correlated with mean temperature because they are smoothed versions of the same signal.
+3. Temperature range has a much weaker relationship with mean temperature, so it can be useful as a separate feature.
+""")
 
     with tabs[9]:
         monthly_series = master.groupby(master["date"].dt.to_period("M"))["temp_mean"].mean()
         monthly_series.index = monthly_series.index.to_timestamp()
         monthly_series = monthly_series.resample("MS").mean().interpolate()
-        decomp = seasonal_decompose(monthly_series, model="additive", period=12, extrapolate_trend="freq")
-        fig = make_subplots(rows=4, cols=1, shared_xaxes=True, subplot_titles=["Observed", "Trend", "Seasonal", "Residual"])
-        fig.add_trace(go.Scatter(x=decomp.observed.index, y=decomp.observed, line=dict(color="#0b3c5d")), row=1, col=1)
-        fig.add_trace(go.Scatter(x=decomp.trend.index, y=decomp.trend, line=dict(color="#d73027")), row=2, col=1)
-        fig.add_trace(go.Scatter(x=decomp.seasonal.index, y=decomp.seasonal, line=dict(color="#0072b2")), row=3, col=1)
-        fig.add_trace(go.Scatter(x=decomp.resid.index, y=decomp.resid, line=dict(color="#6b7280")), row=4, col=1)
-        fig.update_layout(height=720, title="Time-Series Decomposition of Global Monthly Temperature", showlegend=False)
-        st.plotly_chart(fig, use_container_width=True)
-        seasonal_amp = float(decomp.seasonal.max() - decomp.seasonal.min())
-        st.info(f"The decomposition separates long-term movement from repeating seasonal structure. The seasonal component spans about {seasonal_amp:.2f} C from low to high, which confirms a strong yearly climate cycle. The trend panel is the part we care about most for long-run warming interpretation.")
+
+        decomp = seasonal_decompose(monthly_series, model="additive", period=12)
+
+        fig, axes = plt.subplots(4, 1, figsize=(12, 9), sharex=True)
+
+        axes[0].plot(decomp.observed, color="#2c3e50")
+        axes[0].set_ylabel("Observed")
+
+        axes[1].plot(decomp.trend, color="#d73027")
+        axes[1].set_ylabel("Trend")
+
+        axes[2].plot(decomp.seasonal, color="#0072B2")
+        axes[2].set_ylabel("Seasonal")
+
+        axes[3].plot(decomp.resid, color="#666666")
+        axes[3].set_ylabel("Residual")
+
+        fig.suptitle("Time Series Decomposition of Global Monthly Temperature", fontsize=13)
+        fig.tight_layout()
+        st.pyplot(fig, use_container_width=True)
+        plt.close(fig)
+
+        st.markdown("""### Insights
+1. The decomposition separates the global monthly temperature series into trend, seasonality, and residual variation.
+2. The seasonal component confirms that temperature follows a strong yearly cycle.
+3. The trend component is the most useful part for studying long-term warming behavior which is increasing in recent years.
+""")
 
     with tabs[10]:
         st.plotly_chart(make_risk_map(findings["city_slopes"]), use_container_width=True)
-        high_risk_count = (pd.qcut(findings["city_slopes"]["trend_per_decade"], q=3, labels=["Low", "Moderate", "High"]) == "High").sum()
-        st.info(f"This map translates city slopes into a spatial warming-risk view. {high_risk_count} of the selected cities fall into the highest warming-risk group under this ranking. It is a sampled-city risk map, not a complete global climate hazard map, so the interpretation should stay tied to the cities studied here.")
+        st.markdown("""### Insights
+1. Europe, Japan and New York region is in very high risk of global warming which is a concerning matter. As these countries are away from equator and cooler, due to global warming temperatures are rising and it increases the global temperature on a huge scale.
+2. This doesn't mean places India, temperature is not rising, the point is that global warming has affected cooler regions more by drastically changing their temperatures, temperature near equator also rose but it was already warm so the change is not much.
+""")
 
 else:
     st.markdown(
