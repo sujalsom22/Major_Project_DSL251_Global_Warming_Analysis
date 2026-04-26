@@ -474,7 +474,7 @@ elif page == "EDA":
         st.markdown("""### Insights
 1. The 12-month rolling average smooths short-term seasonal variation and makes the long-term pattern easier to observe.
 2. The fitted trend line shows a positive trend of about 0.01 C per year based on the collected city sample.
-3. From the rolling average, we can see that the global temperature has rose up by almost 0.47 C in the last decade.
+3. From the rolling average, we can see that the global temperature has rose up by almost 0.4 C in the last decade.
 4. Monthly temperatures fluctuate strongly due to seasonality, so rolling averages are more useful than raw monthly values for trend interpretation.
 """)
 
