@@ -462,7 +462,7 @@ elif page == "EDA":
         fig, ax = plt.subplots(figsize=(13, 5))
         ax.plot(monthly_global["date"], monthly_global["temp_mean"], color="#65c7fc", alpha=0.55, label="Monthly mean")
         ax.plot(monthly_global["date"], monthly_global["rolling_12m"], color="#08519c", linewidth=2.3, label="12-month rolling mean")
-        ax.plot(monthly_global["date"][valid], slope * x[valid] + intercept, color="#d73027", linestyle="--", label=f"Trend: {slope * 12:.2f} C/year")
+        ax.plot(monthly_global["date"][valid], slope * x[valid] + intercept, color="#d73027", linestyle="--", label=f"Fitted line Trend: {slope * 12:.2f} C/year")
         ax.set_title("Global Monthly Temperature Trend")
         ax.set_ylabel("Temperature (C)")
         ax.set_xlabel("")
@@ -474,7 +474,8 @@ elif page == "EDA":
         st.markdown("""### Insights
 1. The 12-month rolling average smooths short-term seasonal variation and makes the long-term pattern easier to observe.
 2. The fitted trend line shows a positive trend of about 0.01 C per year based on the collected city sample.
-3. Monthly temperatures fluctuate strongly due to seasonality, so rolling averages are more useful than raw monthly values for trend interpretation.
+3. From the rolling average, we can see that the global temperature has rose up by almost 0.47 C in the last decade.
+4. Monthly temperatures fluctuate strongly due to seasonality, so rolling averages are more useful than raw monthly values for trend interpretation.
 """)
 
     with tabs[1]:
